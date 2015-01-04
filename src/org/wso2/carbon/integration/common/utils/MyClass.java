@@ -20,6 +20,7 @@ import com.sun.tools.attach.AgentInitializationException;
 import com.sun.tools.attach.AgentLoadException;
 import com.sun.tools.attach.AttachNotSupportedException;
 
+import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import java.io.IOException;
@@ -28,11 +29,16 @@ import java.util.ArrayList;
 import java.util.Set;
 
 public class MyClass {
-    public static void main(String[] args) throws AgentInitializationException, AgentLoadException, AttachNotSupportedException, IOException, MalformedObjectNameException, InterruptedException {
+    public static void main(String[] args)
+            throws AgentInitializationException, AgentLoadException, AttachNotSupportedException,
+                   IOException, MalformedObjectNameException, InterruptedException {
+
         ThreadDumpMonitor threadDumpMonitor = new ThreadDumpMonitor();
-        String connectorAddress = threadDumpMonitor.getConnectorAddress("8156");
+        String connectorAddress = threadDumpMonitor.getConnectorAddress("4294");
+        MBeanServerConnection mBeanServerConnection = threadDumpMonitor.getMBeanServerConnection(connectorAddress);
         Set<ObjectName> mbeanObjects = threadDumpMonitor.getMbeanObjects(connectorAddress);
-        ArrayList<ThreadMXBean> threadMXBeans = threadDumpMonitor.getThreadMXBeanObjects(mbeanObjects,connectorAddress);
-        threadDumpMonitor.createThreadDumpFile(threadMXBeans);
+        ArrayList<ThreadMXBean> threadMXBeans = threadDumpMonitor.getThreadMXBeanObjects(mbeanObjects, mBeanServerConnection);
+        threadDumpMonitor.createThreadDumpFile(threadMXBeans, "/home/buddhi/Desktop");
+
     }
 }
