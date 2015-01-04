@@ -27,44 +27,55 @@ import javax.management.ObjectName;
 import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
+
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
+
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Set;
 
 
 public class ThreadDumpMonitor {
 
-    private final String Local_Connector_Address = "com.sun.management.jmxremote.localConnectorAddress";
-    private final String Java_Home = "java.home";
-    private final String Library = "lib";
-    private final String Management_Agent_Jar = "management-agent.jar";
+    private final String LOCAL_CONNECTOR_ADDRESS = "com.sun.management.jmxremote.localConnectorAddress";
+    private final String JAVA_HOME = "java.home";
+    private final String LIBRARY = "lib";
+    private final String MANAGEMENT_AGENT_JAR = "management-agent.jar";
+    private final String DEADLOCK = "DEADLOCK";
 
+    //get connector address using java process Id
     public String getConnectorAddress(String pid)
             throws IOException, AttachNotSupportedException, AgentLoadException,
                    AgentInitializationException {
         VirtualMachine remoteVirtualMachine = VirtualMachine.attach(pid);
-        String connectorAddress = remoteVirtualMachine.getAgentProperties().getProperty(Local_Connector_Address);
+        String connectorAddress = remoteVirtualMachine.getAgentProperties().getProperty(LOCAL_CONNECTOR_ADDRESS);
 
         if (connectorAddress == null) {
-            String agent = remoteVirtualMachine.getSystemProperties().getProperty(Java_Home) + File.separator + Library + File.separator + Management_Agent_Jar;
+            String agent = remoteVirtualMachine.getSystemProperties().getProperty(JAVA_HOME) + File.separator + LIBRARY + File.separator + MANAGEMENT_AGENT_JAR;
             remoteVirtualMachine.loadAgent(agent);
-            connectorAddress = remoteVirtualMachine.getAgentProperties().getProperty(Local_Connector_Address);
+            connectorAddress = remoteVirtualMachine.getAgentProperties().getProperty(LOCAL_CONNECTOR_ADDRESS);
         }
 
         return connectorAddress;
     }
 
-    private MBeanServerConnection getMBeanServerConnection(String connectorAddress)
+    //create connection to the MBean server
+    public MBeanServerConnection getMBeanServerConnection(String connectorAddress)
             throws IOException {
         JMXServiceURL serviceUrl = new JMXServiceURL(connectorAddress);
         JMXConnector connector = JMXConnectorFactory.connect(serviceUrl);
         return connector.getMBeanServerConnection();
     }
 
+    //get all MBean objects in remote VM
     public Set<ObjectName> getMbeanObjects(String connectorAddress)
             throws IOException, MalformedObjectNameException {
         ObjectName objectName = new ObjectName(ManagementFactory.THREAD_MXBEAN_NAME);
@@ -72,11 +83,12 @@ public class ThreadDumpMonitor {
         return mBeanServerConnection.queryNames(objectName, null);
     }
 
+
+    //filter ThreadMXBean objects
     public ArrayList<ThreadMXBean> getThreadMXBeanObjects(Set<ObjectName> mBeans,
-                                                          String connectorAddress)
+                                                          MBeanServerConnection mBeanServerConnection)
             throws IOException {
         ArrayList<ThreadMXBean> threadMXBeans = new ArrayList<ThreadMXBean>();
-        MBeanServerConnection mBeanServerConnection = getMBeanServerConnection(connectorAddress);
 
         for (ObjectName name : mBeans) {
             threadMXBeans.add(ManagementFactory.newPlatformMXBeanProxy(mBeanServerConnection, name.toString(), ThreadMXBean.class));
@@ -85,34 +97,70 @@ public class ThreadDumpMonitor {
         return threadMXBeans;
     }
 
-    private String getThreadDump(ThreadMXBean threadMXBean) throws NullPointerException {
-        ThreadInfo[] threadInfos = threadMXBean.dumpAllThreads(true, true);
+    //##############################################################################################
 
-        final StringBuilder dump = new StringBuilder();
+    //get ThreadInfo using Thread Id
+    private ArrayList<ThreadInfo> getThreadInfo(ArrayList<ThreadMXBean> threadMXBeans, long Id)throws NullPointerException{
 
-        for (ThreadInfo threadInfo : threadInfos) {
-            dump.append("Thread name:");
-            dump.append('"');
-            dump.append(threadInfo.getThreadName());
-            dump.append("\" ");
+        ArrayList<ThreadInfo> requestedThreadList = null;
+        for (int i = 0; i < threadMXBeans.size(); i++) {
+            requestedThreadList.add(threadMXBeans.get(i).getThreadInfo(Id));
+        }
+        return requestedThreadList;
+    }
 
-            final Thread.State state = threadInfo.getThreadState();
+    //get thread name
+    public String[] getName(ArrayList<ThreadMXBean> threadMXBeans,long Id)throws NullPointerException{
 
-            dump.append("\n   java.lang.Thread.State: ");
-            dump.append(state);
+        ArrayList<ThreadInfo> requestedThreadList = getThreadInfo(threadMXBeans, Id);//can create NullPointerException
 
-            final StackTraceElement[] stackTraceElements = threadInfo.getStackTrace();
+        //to remove duplicates
+        Set<String> uniqueNames = new HashSet<String>();
 
-            for (final StackTraceElement stackTraceElement : stackTraceElements) {
-                dump.append("\nat ");
-                dump.append(stackTraceElement);
-            }
-
-            dump.append("\n\n");
+        for (int i = 0; i < requestedThreadList.size(); i++) {
+            uniqueNames.add(requestedThreadList.get(i).getThreadName());
         }
 
-        if(getDeadlockedThreadsInfo(threadMXBean) != null) {
-            return dump.toString() + getDeadlockedThreadsInfo(threadMXBean);
+        return uniqueNames.toArray(new String[uniqueNames.size()]);
+    }
+
+
+    //##############################################################################################
+
+    //to get default thread dump, set threadInfoType to null
+    private String getThreadDump(ThreadMXBean threadMXBean, String threadInfoType) throws NullPointerException {
+
+        ThreadInfo[] threadInfos = null;
+
+        if(threadInfoType == null){
+            threadInfos = threadMXBean.dumpAllThreads(true, true);
+        }else if(threadInfoType.equals(DEADLOCK)){
+            threadInfos = getDeadlockedThreads(threadMXBean);
+        }
+
+          final StringBuilder dump = new StringBuilder();
+
+        if(threadInfos != null) {
+            for (ThreadInfo threadInfo : threadInfos) {
+                dump.append("Thread name:");
+                dump.append('"');
+                dump.append(threadInfo.getThreadName());
+                dump.append("\" ");
+
+                final Thread.State state = threadInfo.getThreadState();
+
+                dump.append("\n\tjava.lang.Thread.State: ");
+                dump.append(state);
+
+                final StackTraceElement[] stackTraceElements = threadInfo.getStackTrace();
+
+                for (final StackTraceElement stackTraceElement : stackTraceElements) {
+                    dump.append("\n\t\tat ");
+                    dump.append(stackTraceElement);
+                }
+
+                dump.append("\n\n");
+            }
         }
 
         return dump.toString();
@@ -127,43 +175,30 @@ public class ThreadDumpMonitor {
         return deadlockedThreadInfos;
     }
 
-    private String getDeadlockedThreadsInfo(ThreadMXBean threadMXBean) {
-            ThreadInfo[] deadlockedThreads = getDeadlockedThreads(threadMXBean);
+    public void createThreadDumpFile(ArrayList<ThreadMXBean> threadMXBeans,String path)
+            throws IOException {
 
-        if(deadlockedThreads != null) {
-            final StringBuilder dump = new StringBuilder();
+        File threadDumpFile = new File(path+File.separator+"threadDumpFile.txt");
+        FileOutputStream fileOutputStream = new FileOutputStream(threadDumpFile);
 
-            String deadlockTag = "# Deadlocked Threads\n";
+        BufferedWriter bufferedWriter = new BufferedWriter(new OutputStreamWriter(fileOutputStream));
 
-            for (ThreadInfo threadInfo : deadlockedThreads) {
-                dump.append('"');
-                dump.append(threadInfo.getThreadName());
-                dump.append("\" ");
-
-                final Thread.State state = threadInfo.getThreadState();
-
-                dump.append("\n   java.lang.Thread.State: ");
-                dump.append(state);
-
-                final StackTraceElement[] stackTraceElements = threadInfo.getStackTrace();
-
-                for (final StackTraceElement stackTraceElement : stackTraceElements) {
-                    dump.append("\nat ");
-                    dump.append(stackTraceElement);
-                }
-
-                dump.append("\n\n");
-            }
-            return deadlockTag + dump.toString();
-        }
-        return null;
-    }
-
-    public void createThreadDumpFile(ArrayList<ThreadMXBean> threadMXBeans) {
         for (ThreadMXBean threadMXBean : threadMXBeans) {
-            String threadDump = getThreadDump(threadMXBean);
-            System.out.println(threadDump);
+            String threadDump = getThreadDump(threadMXBean,null);
+            String deadlockThreadDump = getThreadDump(threadMXBean, DEADLOCK);
+
+            String fullThreadDump = threadDump;
+
+            if(!deadlockThreadDump.equals(null)){
+                fullThreadDump = fullThreadDump+"\n\n#Deadlocked Threads\n\n"+deadlockThreadDump;
+            }
+
+            bufferedWriter.write(fullThreadDump);
+            bufferedWriter.newLine();
+
         }
+
+        bufferedWriter.close();
     }
 
 }
