@@ -38,6 +38,7 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -99,31 +100,48 @@ public class ThreadDumpMonitor {
 
     //##############################################################################################
 
-    //get ThreadInfo using Thread Id
-    private ArrayList<ThreadInfo> getThreadInfo(ArrayList<ThreadMXBean> threadMXBeans, long Id)throws NullPointerException{
+    //return all thread Ids
+    public long[] getAllThreadIds(ArrayList<ThreadMXBean> threadMXBeans){
 
-        ArrayList<ThreadInfo> requestedThreadList = null;
-        for (int i = 0; i < threadMXBeans.size(); i++) {
-            requestedThreadList.add(threadMXBeans.get(i).getThreadInfo(Id));
-        }
+        long[] allThreadIds = threadMXBeans.get(0).getAllThreadIds();
+
+        return allThreadIds;
+    }
+
+    //return ThreadInfo using Thread Id
+    public ThreadInfo getThreadInfo(ArrayList<ThreadMXBean> threadMXBeans, long Id)throws NullPointerException{
+
+        ThreadInfo requestedThreadList = threadMXBeans.get(0).getThreadInfo(Id);
+
         return requestedThreadList;
     }
 
-    //get thread name
-    public String[] getName(ArrayList<ThreadMXBean> threadMXBeans,long Id)throws NullPointerException{
+    public int getThreadCount(ArrayList<ThreadMXBean> threadMXBeans,long[] allThreadIds, String name)throws NullPointerException{
+        int count = 0;
 
-        ArrayList<ThreadInfo> requestedThreadList = getThreadInfo(threadMXBeans, Id);//can create NullPointerException
-
-        //to remove duplicates
-        Set<String> uniqueNames = new HashSet<String>();
-
-        for (int i = 0; i < requestedThreadList.size(); i++) {
-            uniqueNames.add(requestedThreadList.get(i).getThreadName());
+        for (int i = 0; i < allThreadIds.length; i++) {
+            if(threadMXBeans.get(0).getThreadInfo(allThreadIds[i]).getThreadName().equals(name)){
+                count++;
+            }
         }
-
-        return uniqueNames.toArray(new String[uniqueNames.size()]);
+        return count;
     }
 
+    public int getThreadCountUsingRegex(ArrayList<ThreadMXBean> threadMXBeans,long[] allThreadIds, String subString)throws NullPointerException{
+        int count = 0;
+
+
+        for (int i = 0; i < allThreadIds.length; i++) {
+            String threadName = threadMXBeans.get(0).getThreadInfo(allThreadIds[i]).getThreadName();
+
+            int indicator = threadName.split(subString).length;
+
+            if(indicator>1){
+                count++;
+            }
+        }
+        return count;
+    }
 
     //##############################################################################################
 
@@ -178,10 +196,18 @@ public class ThreadDumpMonitor {
     public void createThreadDumpFile(ArrayList<ThreadMXBean> threadMXBeans,String path)
             throws IOException {
 
-        File threadDumpFile = new File(path+File.separator+"threadDumpFile.txt");
-        FileOutputStream fileOutputStream = new FileOutputStream(threadDumpFile);
+        String absolutePath = path+File.separator+"threadDumpFile.txt";
 
-        BufferedWriter bufferedWriter = new BufferedWriter(new OutputStreamWriter(fileOutputStream));
+        File threadDumpFile = new File(absolutePath);
+        //FileOutputStream fileOutputStream = new FileOutputStream(threadDumpFile);
+
+        if(!threadDumpFile.exists()) {
+            if(!threadDumpFile.createNewFile()){
+                return;
+            }
+        }
+
+        BufferedWriter bufferedWriter = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(threadDumpFile), Charset.defaultCharset()));
 
         for (ThreadMXBean threadMXBean : threadMXBeans) {
             String threadDump = getThreadDump(threadMXBean,null);
@@ -189,7 +215,7 @@ public class ThreadDumpMonitor {
 
             String fullThreadDump = threadDump;
 
-            if(!deadlockThreadDump.equals(null)){
+            if(null!=deadlockThreadDump){
                 fullThreadDump = fullThreadDump+"\n\n#Deadlocked Threads\n\n"+deadlockThreadDump;
             }
 
