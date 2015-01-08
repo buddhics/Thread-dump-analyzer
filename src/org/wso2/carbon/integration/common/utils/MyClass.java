@@ -24,6 +24,8 @@ import javax.management.MBeanServerConnection;
 import javax.management.MalformedObjectNameException;
 import javax.management.ObjectName;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.Set;
@@ -33,12 +35,39 @@ public class MyClass {
             throws AgentInitializationException, AgentLoadException, AttachNotSupportedException,
                    IOException, MalformedObjectNameException, InterruptedException {
 
-        ThreadDumpMonitor threadDumpMonitor = new ThreadDumpMonitor();
-        String connectorAddress = threadDumpMonitor.getConnectorAddress("4294");
-        MBeanServerConnection mBeanServerConnection = threadDumpMonitor.getMBeanServerConnection(connectorAddress);
-        Set<ObjectName> mbeanObjects = threadDumpMonitor.getMbeanObjects(connectorAddress);
-        ArrayList<ThreadMXBean> threadMXBeans = threadDumpMonitor.getThreadMXBeanObjects(mbeanObjects, mBeanServerConnection);
-        threadDumpMonitor.createThreadDumpFile(threadMXBeans, "/home/buddhi/Desktop");
+//        ThreadDumpMonitor threadDumpMonitor = new ThreadDumpMonitor();
+//        String connectorAddress = threadDumpMonitor.getConnectorAddress("15547");
+//        MBeanServerConnection mBeanServerConnection = threadDumpMonitor.getMBeanServerConnection(connectorAddress);
+//        Set<ObjectName> mbeanObjects = threadDumpMonitor.getMbeanObjects(connectorAddress);
+//        ArrayList<ThreadMXBean> threadMXBeans = threadDumpMonitor.getThreadMXBeanObjects(mbeanObjects, mBeanServerConnection);
+//        threadDumpMonitor.createThreadDumpFile(threadMXBeans, "/home/buddhi/Desktop");
+//        long[] ids = threadDumpMonitor.getAllThreadIds(threadMXBeans);
+//
+//        for (long l:ids){
+//            System.out.println(l);
+//        }
+//
+//        System.out.println("Thread count:  "+threadDumpMonitor.getThreadCount(threadMXBeans,ids,"PassThroughHTTPSSender"));
+//
+//        System.out.println("Thread count using regex:  "+threadDumpMonitor.getThreadCountUsingRegex(threadMXBeans,ids,"PassThrough"));
+
+        MBeanHandler myMBeanHandler = new MBeanHandler();
+
+        String connectorAddress = myMBeanHandler.getConnectorAddress(5048);
+
+        MBeanServerConnection mBeanServerConnection = myMBeanHandler.getMBeanServerConnection(connectorAddress);
+
+        ObjectName objectName = myMBeanHandler.getRegisteredMBeanObject(mBeanServerConnection, ManagementFactory.THREAD_MXBEAN_NAME, null);
+
+        ThreadAnalyser myThreadAnalyser = new ThreadAnalyser();
+
+        ThreadMXBean myThreadMXBean = myThreadAnalyser.getThreadMXBeanObjects(objectName, mBeanServerConnection);
+
+        ThreadInfo[] myThreadInfo = myThreadAnalyser.getAllThreadInfo(myThreadMXBean);
+
+        myThreadAnalyser.createThreadDumpFile(myThreadInfo, "/home/buddhi/Desktop");
+
+        System.out.println("done....");
 
     }
 }
